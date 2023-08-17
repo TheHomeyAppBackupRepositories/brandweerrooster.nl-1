@@ -135,6 +135,11 @@ class MyDevice extends Device {
     await this.homey.app.websocketDiscconect(true);
   }
 
+  async onUninit() {
+    clearInterval(this.retryLoginInterval);
+    clearInterval(this.tokenRenwalInterval);
+  }
+
 }
 
 module.exports = MyDevice;
