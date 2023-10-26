@@ -7,10 +7,8 @@
 const Homey = require('homey');
 const axios = require('axios');
 const https = require('https');
-const WebSocket = require('ws');
 const moment = require('moment');
 const momenttz = require('moment-timezone');
-const eventBus = require('@tuxjs/eventbus');
 
 axios.defaults.timeout = 30000;
 axios.defaults.httpsAgent = new https.Agent({ keepAlive: true });
@@ -21,7 +19,6 @@ class BrandweerRooster extends Homey.App {
    * onInit is called when the app is initialized.
    */
   async onInit() {
-    this.debug = false;
     // this.url = 'www.brandweerrooster.nl';
     this.url = 'www.fireservicerota.co.uk';
 
@@ -131,6 +128,14 @@ class BrandweerRooster extends Homey.App {
       this.loginOk = false;
       return false;
     }
+  }
+
+  async getUrl() {
+    return this.url;
+  }
+
+  async getAccessToken() {
+    return this.access_token;
   }
 
   // refreshTokenServices generates a new access_token and refresh_token
@@ -262,108 +267,6 @@ class BrandweerRooster extends Homey.App {
         this.error(err);
         return false;
       }
-    }
-  }
-
-  // WEBSOCKET FOR PROCESSING realtime incident
-  async WebSocketConnection() {
-    try {
-      if (this.ws == null || this.ws.readyState === WebSocket.CLOSED) {
-        this.debouncer++;
-
-        const urlEndpoint = `wss://${this.url}/cable?access_token=${this.access_token}`;
-
-        this.ws = new WebSocket(urlEndpoint, {
-          origin: urlEndpoint,
-        });
-
-        this.ws.on('open', () => {
-          this.log('Websocket opened');
-          const msg = {
-            command: 'subscribe',
-            identifier: JSON.stringify({
-              channel: 'IncidentNotificationsChannel',
-            }),
-          };
-          this.ws.send(JSON.stringify(msg));
-          this.wsConnected = true;
-          this.debouncer = 0;
-        });
-
-        this.ws.on('message', async (response) => {
-          try {
-            const msg = JSON.parse(response);
-            if (msg.type === 'ping') { // Ignores pings.
-              return;
-            }
-            if (msg.type === 'welcome') { // print subcribe incidents
-              this.log('Subscribed to IncidentNotificationsChannel on websocket');
-            }
-            if (msg?.message?.type === 'incident_alert') {
-              eventBus.publish('update', msg); // send to device
-              if (this.debug) {
-                this.log(msg);
-              }
-            }
-          } catch (error) {
-            this.error(error);
-          }
-        });
-
-        this.ws.on('error', (error) => {
-          this.error('Websocket error:', error.message);
-        });
-
-        this.ws.on('close', (code, reason) => {
-          this.error('Websocket closed due to reasoncode:', code);
-          clearTimeout(this.wsReconnectTimeout);
-          this.wsConnected = false;
-
-          if (code !== 1006 && !this.deviceDeleted) {
-            // retry connection after 30 seconds and if not retried 10 times already
-            if (this.debouncer < 10) {
-              this.wsReconnectTimeout = this.homey.setTimeout(async () => {
-                await this.WebSocketConnection();
-              }, 5000);// 5sec
-            } else {
-              this.wsReconnectTimeout = this.homey.setTimeout(async () => {
-                await this.WebSocketConnection();
-              }, 60000); // 1min
-            }
-          } else {
-            this.wsReconnectTimeout = this.homey.setTimeout(async () => {
-              await this.WebSocketConnection();
-            }, 60000); // 1min
-          }
-        });
-      }
-    } catch (error) {
-      this.error(error);
-      clearTimeout(this.wsReconnectTimeout);
-      if (this.debouncer < 10) {
-        this.wsReconnectTimeout = this.homey.setTimeout(async () => {
-          if (!this.wsConnected) {
-            await this.WebSocketConnection();
-          }
-        }, 1000);// 1sec
-      } else {
-        this.wsReconnectTimeout = this.homey.setTimeout(async () => {
-          if (!this.wsConnected) {
-            await this.WebSocketConnection();
-          }
-        }, 60000); // 1min
-      }
-    }
-  }
-
-  async websocketDiscconect(deviceDeleted) {
-    if (this.wsConnected) {
-      if (deviceDeleted) {
-        this.deviceDeleted = true;
-      } else {
-        this.deviceDeleted = false;
-      }
-      this.ws.close();
     }
   }
 
